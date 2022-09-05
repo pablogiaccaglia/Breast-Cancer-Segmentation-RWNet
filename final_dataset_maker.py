@@ -2,16 +2,76 @@ import os
 from itertools import combinations
 import random
 from typing import Union
-import re
 import cv2
 import numpy as np
-import tensorflow as tf
+from patchify import patchify
 from sklearn.model_selection import train_test_split
 import shutil
 from augmentations import augment
 from augmentations import rotateFlipData
-from preprocessing import getMaskPatch, getPatches
 
+def getMaskPatch(img, msk, getBothPatches = False):
+    def return_box(x1, x2, y1, y2, multiplier = 1):
+        xmid = (x1 + x2) // 2
+        ymid = (y1 + y2) // 2
+        return xmid + multiplier * (x1 - xmid), \
+               ymid + multiplier * (y1 - ymid), \
+               xmid + multiplier * (x2 - xmid), \
+               ymid + multiplier * (y2 - ymid)
+
+    x, y, w, h = cv2.boundingRect(msk)
+    w = max(w, h)
+    h = w
+
+    multiplier = 2
+    if msk.max() == 255:
+        msk = msk / 255
+    if msk.sum() < 10000:
+        multiplier = 4
+
+    multiplier = 4  # TODO check if it is right to have different multipliers
+
+    x, y, z, q = return_box(x, x + w, y, y + h, multiplier)
+    # ima = cv2.rectangle(img, (x, y), (z, q), (0, 255, 0), 2)
+
+    if x < 0:
+        x = 0
+    if y < 0:
+        y = 0
+    if z < 0:
+        z = 0
+    if q < 0:
+        q = 0
+
+    if q > img.shape[0]:
+        q = img.shape[0]
+    if z > img.shape[1]:
+        z = img.shape[1]
+
+    croppedImage = img[y:q, x:z]
+
+    if getBothPatches:
+        croppedMask = msk[y:q, x:z]
+        return croppedImage, croppedMask, [y, q, x, z]
+
+    else:
+        return croppedImage, [y, q, x, z]
+
+def getPatches(img, width, height, channels, step):
+    if channels is not None:
+        patches_img = patchify(img, (width, height, channels),
+                               step = step)  # example = Step=256 for 256 patches means no overlap
+    else:
+        patches_img = patchify(img, (width, height),
+                               step = step)  # example = Step=256 for 256 patches means no overlap
+
+    p = []
+
+    for i in range(patches_img.shape[0]):
+        for j in range(patches_img.shape[1]):
+            p.append(patches_img[i][j])
+
+    return p, patches_img.shape
 
 def imgAugment(logger, self, x_img, y_img):
     """
